@@ -1,0 +1,23 @@
+# Виртуальные окружения
+.venv/
+env/
+venv/
+
+# Кэш Python и IDE
+__pycache__/
+*.py[cod]
+*$py.class
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# Исходные данные и нарезанные изображения
+Data/
+crops/
+
+# Архивы
+*.zip
+*.tar.gz
+
+# Временные логи
+*.log
