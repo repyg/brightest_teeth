@@ -14,3 +14,29 @@
 * `expeiments/` — исследовательская среда. Содержит скрипты парсинга BBox, тренировочный цикл и код расчета порога.
 * `requirements.txt` — зафиксированные версии библиотек для сборки Docker-образа.
 
+## Локальная инфраструктура
+
+Для бэкенда подготовлен `docker-compose.yml` с Postgres + pgvector и S3-совместимым хранилищем MinIO.
+
+1. Скопируйте переменные окружения:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Запустите инфраструктуру:
+
+   ```bash
+   docker compose up -d
+   ```
+
+3. Подключение из Go-бэкенда:
+
+   * Postgres: `postgres://brightest_teeth:brightest_teeth@localhost:5432/brightest_teeth?sslmode=disable`
+   * S3 endpoint: `http://localhost:9000`
+   * S3 endpoint из контейнеров Compose: `http://minio:9000`
+   * S3 bucket: `vehicle-photos`
+   * MinIO console: `http://localhost:9001`
+
+При первом старте Postgres автоматически включает расширение `vector` и создает таблицы `vehicle_photos` и `vehicle_observations`. Эмбеддинг модели хранится как `vector(512)` и индексируется через HNSW для cosine-поиска.
+
