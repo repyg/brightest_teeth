@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from model import VehicleReIDModel
+from .model import VehicleReIDModel
 
 
 class VehicleFeatureExtractor:
@@ -21,8 +21,8 @@ class VehicleFeatureExtractor:
             raise FileNotFoundError(f"Веса не найдены по пути: {weights_path}")
 
         # Инициализация модели
-        self.model = VehicleReIDModel(num_classes=num_classes, model_name='resnet50', embedding_size=512)
-        self.model.load_state_dict(torch.load(weights_path, map_location=self.device))
+        self.model = VehicleReIDModel(num_classes=num_classes, model_name='resnet50', embedding_size=512, pretrained=False)
+        self.model.load_state_dict(torch.load(weights_path, map_location=self.device, weights_only=True))
         self.model.to(self.device)
         self.model.eval()
 
@@ -42,14 +42,15 @@ class VehicleFeatureExtractor:
         # вырезаем автомобиль
         x, y, w, h = [int(v) for v in bbox]
         y_max, x_max = image.shape[:2]
-        x1, y1 = max(0, x), max(0, y)
-        x2, y2 = min(x_max, x + w), min(y_max, y + h)
+        if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > x_max or y + h > y_max:
+            raise ValueError('BBox must be inside the image')
+        x1, y1 = x, y
+        x2, y2 = x + w, y + h
 
         crop = image[y1:y2, x1:x2]
 
         if crop.size == 0:
-            # защита от битых координат: возвращаем нулевой вектор
-            return np.zeros(512, dtype=np.float32)
+            raise ValueError('Empty crop')
 
         # применяем трансформации (ресайз + нормализация)
         tensor = self.transform(image=crop)['image']

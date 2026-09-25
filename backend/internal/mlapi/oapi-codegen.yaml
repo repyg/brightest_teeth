@@ -1,0 +1,6 @@
+package: mlapi
+output: client.gen.go
+generate:
+  models: true
+  client: true
+  embedded-spec: true
