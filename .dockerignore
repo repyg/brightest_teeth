@@ -1,0 +1,11 @@
+.git
+.cache
+tmp
+.env
+Data
+crops
+expeiments
+*.npy
+*.csv
+**/__pycache__
+**/.venv

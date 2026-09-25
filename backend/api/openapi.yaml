@@ -1,0 +1,679 @@
+openapi: 3.0.3
+info:
+  title: Vehicle ReID API
+  version: 0.1.0
+  description: |
+    Контракт Go-бэкенда сервиса сопоставления автомобилей по визуальным признакам.
+    Сценарий: загрузить полный кадр, передать photo_id и BBox, добавить объект
+    в галерею или выполнить поиск. Один кадр может содержать несколько объектов.
+    Детекция, распознавание номеров и трекинг не входят в API.
+    Все операции синхронные. Время в UTC, идентификаторы ресурсов UUID.
+    Версия 0.1 предназначена для доверенного локального окружения без авторизации.
+    Лимиты и значения по умолчанию ниже являются проектными решениями API.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: System
+  - name: Photos
+  - name: Features
+  - name: Gallery
+  - name: Search
+paths:
+  /openapi.json:
+    get:
+      operationId: GetOpenAPIDocument
+      tags: [System]
+      summary: Получить актуальный контракт API
+      responses:
+        '200':
+          description: Встроенный OpenAPI-документ
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /healthz:
+    get:
+      operationId: GetHealth
+      tags: [System]
+      summary: Проверка работоспособности HTTP-процесса
+      description: Не проверяет готовность ML, PostgreSQL и MinIO.
+      responses:
+        '200':
+          description: Процесс работает
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /readyz:
+    get:
+      operationId: GetReadiness
+      tags: [System]
+      summary: Проверка готовности всех зависимостей
+      description: Успех только при доступности PostgreSQL, MinIO и загруженной ML-модели.
+      responses:
+        '200':
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/photos:
+    post:
+      operationId: UploadPhoto
+      tags: [Photos]
+      summary: Загрузить полный кадр JPEG или PNG
+      description: |
+        Один файл до 10 MiB (10485760 байт), не более 40000000 пикселей.
+        Проверяются фактический формат и возможность декодирования; расширению
+        и заявленному Content-Type доверять нельзя. EXIF-ориентация не применяется:
+        BBox задаётся в координатах исходной декодированной матрицы пикселей.
+        Ответ возвращается после сохранения файла и метаданных.
+        Повторная загрузка создаёт новый ресурс; дедупликация не гарантируется.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Полный исходный кадр, а не предварительно обрезанный автомобиль.
+            encoding:
+              image:
+                contentType: image/jpeg, image/png
+      responses:
+        '201':
+          description: Кадр сохранён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Photo'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/photos/{photo_id}:
+    parameters:
+      - $ref: '#/components/parameters/PhotoID'
+    get:
+      operationId: GetPhoto
+      tags: [Photos]
+      summary: Получить метаданные кадра
+      responses:
+        '200':
+          description: Метаданные кадра
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Photo'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/photos/{photo_id}/content:
+    parameters:
+      - $ref: '#/components/parameters/PhotoID'
+    get:
+      operationId: DownloadPhoto
+      tags: [Photos]
+      summary: Получить исходный кадр для отображения результатов
+      description: Бэкенд читает приватный объект MinIO; внутренние ключи S3 не раскрываются.
+      responses:
+        '200':
+          description: Исходные байты кадра
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/features:
+    post:
+      operationId: ExtractFeature
+      tags: [Features]
+      summary: Извлечь цифровой признак без добавления в галерею
+      description: |
+        Нулевой или нечисловой вектор не является допустимым эмбеддингом.
+        Невалидный BBox отклоняется до вызова модели. Некорректный результат
+        модели возвращается как 503 с кодом dependency_unavailable.
+      requestBody:
+        $ref: '#/components/requestBodies/VehicleInput'
+      responses:
+        '200':
+          description: Нормированный вектор float32 размерности 512
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/gallery/observations:
+    post:
+      operationId: CreateObservation
+      tags: [Gallery]
+      summary: Вычислить признак и добавить объект в галерею
+      description: |
+        Наблюдение — конкретный BBox на кадре, не установленная идентичность ТС.
+        Разные BBox одного photo_id сохраняются как независимые наблюдения.
+        Повторный запрос создаёт новое наблюдение. 201 означает, что вектор
+        сохранён и наблюдение доступно для поиска. Нулевой/нечисловой результат
+        модели возвращает 503 и не сохраняется.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateObservation'
+      responses:
+        '201':
+          description: Наблюдение добавлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Observation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    get:
+      operationId: ListObservations
+      tags: [Gallery]
+      summary: Просмотреть галерею
+      description: |
+        Сортировка created_at DESC, id DESC. Непрозрачный курсор продолжает
+        выборку после последней пары значений; это не снимок данных.
+        Некорректный курсор возвращает 400. total не вычисляется.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+      responses:
+        '200':
+          description: Страница галереи, включая пустую
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/gallery/observations/{observation_id}:
+    parameters:
+      - $ref: '#/components/parameters/ObservationID'
+    get:
+      operationId: GetObservation
+      tags: [Gallery]
+      summary: Получить наблюдение галереи
+      responses:
+        '200':
+          description: Наблюдение
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Observation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+    delete:
+      operationId: DeleteObservation
+      tags: [Gallery]
+      summary: Удалить наблюдение из поиска
+      description: |
+        Удаляет наблюдение и эмбеддинг, сохраняя исходный кадр.
+        Повторное удаление отсутствующего UUID также возвращает 204.
+      responses:
+        '204':
+          description: Наблюдение отсутствует в галерее
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/search:
+    post:
+      operationId: SearchVehicles
+      tags: [Search]
+      summary: Найти похожие автомобили или вернуть отказ
+      description: |
+        Запрос не добавляется в галерею. Сходство — cosine similarity в [-1, 1],
+        больше означает ближе; это не калиброванная вероятность. Для pgvector
+        score = 1 - cosine_distance. Результаты сортируются по confidence DESC,
+        при равенстве — observation.id ASC. Возвращается не более top_k объектов.
+        candidates: включаются только confidence >= threshold (по умолчанию 0.36).
+        Пустой список означает refused=true; причина empty_gallery, если после
+        исключений галерея пуста, иначе below_threshold.
+        ranking: порог не применяется; возвращаются ближайшие объекты, даже
+        при низкой уверенности; refused всегда false, refusal_reason=null,
+        threshold=null. Это режим подготовки top-10 для submission.csv.
+        Результаты относятся к наблюдениям и не объединяются по vehicle_id.
+        Поиск использует ANN/HNSW, поэтому полнота ближайших соседей приближённая.
+        Нулевой/нечисловой результат модели — ошибка 503, а не отказ.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+            examples:
+              candidates:
+                value:
+                  photo_id: 49cdc8ea-9f28-4c73-9cc6-69bbcf88be71
+                  bbox: {x: 100, y: 80, w: 320, h: 180}
+                  mode: candidates
+                  top_k: 10
+                  threshold: 0.36
+      responses:
+        '200':
+          description: Результаты поиска или корректный отказ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+              examples:
+                refusal:
+                  value:
+                    mode: candidates
+                    threshold: 0.36
+                    candidates: []
+                    refused: true
+                    refusal_reason: below_threshold
+                    model_version: reid-resnet50-v1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/TooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+components:
+  parameters:
+    PhotoID:
+      name: photo_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ObservationID:
+      name: observation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  requestBodies:
+    VehicleInput:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/VehicleInput'
+  responses:
+    BadRequest:
+      description: Синтаксическая ошибка JSON/multipart, UUID, параметра или курсора; code=bad_request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Кадр или наблюдение не найдены; code=not_found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooLarge:
+      description: Файл превышает 10 MiB, JSON превышает 64 KiB или multipart целиком превышает 11 MiB; code=payload_too_large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    UnsupportedMedia:
+      description: Неподдерживаемый Content-Type запроса или формат файла; code=unsupported_media_type
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unprocessable:
+      description: Нарушение схемы/ограничений, повреждённый кадр, превышение числа пикселей или BBox вне кадра; code=validation_error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Внутренняя ошибка без раскрытия технических деталей; code=internal_error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: PostgreSQL, MinIO или ML недоступны/не готовы, тайм-аут или невалидный ответ ML; code=dependency_unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    BBox:
+      type: object
+      additionalProperties: false
+      required: [x, y, w, h]
+      description: |
+        Целые пиксели исходного кадра, начало в левом верхнем углу.
+        Область [x, x+w) × [y, y+h). x+w <= ширина, y+h <= высота кадра.
+        Выход за границы отклоняется (422), координаты не обрезаются молча.
+        При передаче в ML/БД преобразуется в массив [x, y, w, h].
+      properties:
+        x:
+          type: integer
+          format: int32
+          minimum: 0
+        y:
+          type: integer
+          format: int32
+          minimum: 0
+        w:
+          type: integer
+          format: int32
+          minimum: 1
+        h:
+          type: integer
+          format: int32
+          minimum: 1
+    VehicleInput:
+      type: object
+      additionalProperties: false
+      required: [photo_id, bbox]
+      properties:
+        photo_id:
+          type: string
+          format: uuid
+        bbox:
+          $ref: '#/components/schemas/BBox'
+    Photo:
+      type: object
+      additionalProperties: false
+      required: [id, content_type, size_bytes, width, height, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png]
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 10485760
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+    Feature:
+      type: object
+      additionalProperties: false
+      required: [embedding, model_version]
+      properties:
+        embedding:
+          type: array
+          minItems: 512
+          maxItems: 512
+          description: Конечные float32, L2-норма равна 1 с допуском 1e-5; NaN/Infinity/нулевой вектор запрещены.
+          items:
+            type: number
+            format: float
+            minimum: -1
+            maximum: 1
+        model_version:
+          type: string
+          minLength: 1
+          description: Версия весов и препроцессинга. В галерее допускается только одна совместимая версия.
+          example: reid-resnet50-v1
+    CreateObservation:
+      type: object
+      additionalProperties: false
+      required: [photo_id, bbox]
+      properties:
+        photo_id:
+          type: string
+          format: uuid
+        bbox:
+          $ref: '#/components/schemas/BBox'
+        image_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Внешний image_id из CSV, не обязан быть уникальным (несколько BBox на кадре).
+        vehicle_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Известная аннотация обучающей галереи; не требуется и не используется для вычисления сходства.
+    Observation:
+      type: object
+      additionalProperties: false
+      required: [id, photo_id, bbox, model_version, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        photo_id:
+          type: string
+          format: uuid
+        bbox:
+          $ref: '#/components/schemas/BBox'
+        image_id:
+          type: string
+        vehicle_id:
+          type: string
+        model_version:
+          type: string
+          minLength: 1
+        created_at:
+          type: string
+          format: date-time
+    ObservationPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Observation'
+        next_cursor:
+          type: string
+          nullable: true
+          description: null на последней странице.
+    SearchMode:
+      type: string
+      enum: [candidates, ranking]
+      default: candidates
+    SearchRequest:
+      type: object
+      additionalProperties: false
+      required: [photo_id, bbox]
+      properties:
+        photo_id:
+          type: string
+          format: uuid
+        bbox:
+          $ref: '#/components/schemas/BBox'
+        mode:
+          $ref: '#/components/schemas/SearchMode'
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 10
+        threshold:
+          type: number
+          format: float
+          minimum: -1
+          maximum: 1
+          description: Только для candidates, при отсутствии 0.36. Передача в режиме ranking — 422.
+        exclude_observation_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          description: Исключить до ранжирования; неизвестные UUID игнорируются. Автоматического исключения по photo_id нет.
+          items:
+            type: string
+            format: uuid
+    Candidate:
+      type: object
+      additionalProperties: false
+      required: [observation, confidence]
+      properties:
+        observation:
+          $ref: '#/components/schemas/Observation'
+        confidence:
+          type: number
+          format: float
+          minimum: -1
+          maximum: 1
+          description: Косинусное сходство с запросом, не вероятность; вычисляется заново для каждого запроса.
+    SearchResult:
+      type: object
+      additionalProperties: false
+      required: [mode, threshold, candidates, refused, refusal_reason, model_version]
+      properties:
+        mode:
+          $ref: '#/components/schemas/SearchMode'
+        threshold:
+          type: number
+          format: float
+          nullable: true
+          minimum: -1
+          maximum: 1
+          description: Фактически применённый порог; null в ranking.
+        candidates:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/Candidate'
+        refused:
+          type: boolean
+        refusal_reason:
+          type: string
+          nullable: true
+          enum: [empty_gallery, below_threshold]
+          description: null при refused=false.
+        model_version:
+          type: string
+          minLength: 1
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [bad_request, not_found, payload_too_large, unsupported_media_type, validation_error, internal_error, dependency_unavailable]
+        message:
+          type: string
+          minLength: 1
+          description: Человекочитаемое описание; клиент должен опираться на code.
+        details:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [field, message]
+            properties:
+              field:
+                type: string
+                example: bbox.w
+              message:
+                type: string

@@ -1,0 +1,79 @@
+openapi: 3.0.3
+info:
+  title: Internal Vehicle Feature API
+  version: 0.1.0
+  description: Private Go-to-Python API. No public port. Weights and preprocessing must match model_version.
+paths:
+  /readyz:
+    get:
+      operationId: Ready
+      responses:
+        '200':
+          description: Model loaded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [model_version]
+                properties:
+                  model_version: {type: string, minLength: 1}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/features:
+    post:
+      operationId: Extract
+      description: |
+        Synchronous extraction; JSON body <= 15 MiB, decoded JPEG/PNG <= 10 MiB,
+        <= 40 million pixels. Do not rotate by EXIF. BBox must be inside frame.
+        At most one inference at a time; overload returns 503.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [image, bbox]
+              properties:
+                image: {type: string, format: byte, minLength: 1, description: Base64 encoded original frame}
+                bbox:
+                  type: object
+                  additionalProperties: false
+                  required: [x, y, w, h]
+                  properties:
+                    x: {type: integer, format: int32, minimum: 0}
+                    y: {type: integer, format: int32, minimum: 0}
+                    w: {type: integer, format: int32, minimum: 1}
+                    h: {type: integer, format: int32, minimum: 1}
+      responses:
+        '200':
+          description: Finite L2-normalized vector (norm tolerance 1e-5), never a zero vector
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [embedding, model_version]
+                additionalProperties: false
+                properties:
+                  embedding:
+                    type: array
+                    minItems: 512
+                    maxItems: 512
+                    items: {type: number, format: float, minimum: -1, maximum: 1}
+                  model_version: {type: string, minLength: 1}
+        '400': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '415': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+components:
+  responses:
+    Error:
+      description: Invalid input, unavailable model or overloaded worker
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message]
+            properties:
+              code: {type: string}
+              message: {type: string}
