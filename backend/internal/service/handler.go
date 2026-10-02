@@ -52,6 +52,14 @@ func (s *Service) GetHealth(context.Context, api.GetHealthRequestObject) (api.Ge
 	return api.GetHealth200JSONResponse{Status: api.Ok}, nil
 }
 
+func (s *Service) GetAdminStats(ctx context.Context, _ api.GetAdminStatsRequestObject) (api.GetAdminStatsResponseObject, error) {
+	stats, err := s.Repo.Stats(ctx)
+	if err != nil {
+		return nil, dependency(err)
+	}
+	return api.GetAdminStats200JSONResponse(stats), nil
+}
+
 func (s *Service) GetReadiness(ctx context.Context, _ api.GetReadinessRequestObject) (api.GetReadinessResponseObject, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()

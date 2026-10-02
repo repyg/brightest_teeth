@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Activity, Aperture, Database, FileJson, Menu, Search, X } from "lucide-react";
+import { Activity, Aperture, Database, FileJson, Menu, Search, Settings, X } from "lucide-react";
 import { API_URL, api } from "@/lib/api";
 import { SearchWorkspace } from "./search-workspace";
 import { GalleryView } from "./gallery-view";
+import { AdminView } from "./admin-view";
 
-type View = "search" | "gallery";
+type View = "search" | "gallery" | "admin";
 type Health = "checking" | "online" | "offline";
 
 export function ReIdApp() {
@@ -64,6 +65,10 @@ export function ReIdApp() {
             <Database size={19} />
             <span>Галерея объектов</span>
           </button>
+          <button className={view === "admin" ? "nav__item nav__item--active" : "nav__item"} onClick={() => navigate("admin")}>
+            <Settings size={19} />
+            <span>Администрирование</span>
+          </button>
         </nav>
 
         <div className="sidebar__spacer" />
@@ -103,8 +108,10 @@ export function ReIdApp() {
             onGalleryChanged={() => setGalleryRevision((value) => value + 1)}
             onOpenGallery={() => navigate("gallery")}
           />
-        ) : (
+        ) : view === "gallery" ? (
           <GalleryView key={galleryRevision} onBackToSearch={() => navigate("search")} />
+        ) : (
+          <AdminView onOpenGallery={() => navigate("gallery")} />
         )}
       </main>
     </div>

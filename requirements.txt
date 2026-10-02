@@ -4,3 +4,4 @@ timm
 albumentations
 numpy
 opencv-python-headless
+mlflow==3.7.0

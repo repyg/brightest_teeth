@@ -17,6 +17,8 @@ sys.path.append(BASE_DIR)
 from core.model import VehicleReIDModel
 # Импортируем трансформации из вашей папки expeiments (с учетом опечатки в названии)
 from expeiments.dataset import test_transform
+from expeiments.mlflow_tracking import start_run
+import mlflow
 
 # --- Настройки путей согласно структуре проекта ---
 TRAIN_DIR = os.path.join(BASE_DIR, "../crops", "bounding_box_train")
@@ -57,7 +59,7 @@ class ThresholdDataset(Dataset):
 
 
 @torch.no_grad()
-def main():
+def _run():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Анализ порогов запущен на устройстве: {device}")
 
@@ -73,6 +75,7 @@ def main():
 
     # Загрузка данных (num_workers=0 для стабильности на Windows)
     dataset = ThresholdDataset(TRAIN_DIR, test_transform, max_samples=2000)
+    mlflow.log_params({"max_samples": 2000, "threshold_min": 0.3, "threshold_max": 0.9, "threshold_steps": 100, "model_path": WEIGHTS_PATH})
     loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=0)
 
     # 1. Извлечение признаков
@@ -128,6 +131,12 @@ def main():
     print(f"\n--- РЕЗУЛЬТАТЫ ---")
     print(f"Оптимальный порог: {best_thresh:.3f}")
     print(f"Максимальный F1-score: {best_f1:.4f}")
+    mlflow.log_metrics({
+        "best_threshold": float(best_thresh),
+        "best_f1": float(best_f1),
+        "positive_pairs": int(len(pos_scores)),
+        "negative_pairs": int(len(neg_scores)),
+    })
 
     # 5. Отрисовка красивого графика для защиты и презентации
     plt.figure(figsize=(10, 6))
@@ -149,8 +158,14 @@ def main():
     # Сохраняем график в корне проекта
     plot_path = os.path.join(BASE_DIR, "threshold_plot.png")
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    mlflow.log_artifact(plot_path, artifact_path="evaluation")
     print(f"\nГрафик успешно сохранен в файл: {plot_path}")
     print(f"ОБЯЗАТЕЛЬНО: обновите CONFIDENCE_THRESHOLD в inference.py на {best_thresh:.2f}")
+
+
+def main():
+    with start_run("threshold-evaluation"):
+        _run()
 
 
 if __name__ == "__main__":

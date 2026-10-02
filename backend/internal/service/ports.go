@@ -24,6 +24,7 @@ type Cursor struct {
 
 type Repository interface {
 	Ready(context.Context) error
+	Stats(context.Context) (api.AdminStats, error)
 	SavePhoto(context.Context, StoredPhoto) error
 	Photo(context.Context, uuid.UUID) (StoredPhoto, error)
 	SaveObservation(context.Context, api.Observation, []float32) error

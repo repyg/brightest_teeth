@@ -9,6 +9,8 @@ from tqdm import tqdm
 # Импортируем вашу модель и трансформации
 from core.model import VehicleReIDModel
 from expeiments.dataset import test_transform
+from expeiments.mlflow_tracking import start_run
+import mlflow
 
 # --- 1. Настройка локальных путей ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -71,7 +73,7 @@ def extract_features(loader, model, device):
 
 
 # --- 4. Основной процесс ---
-def run_inference():
+def _run_inference():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Запуск инференса на устройстве: {device}")
 
@@ -119,6 +121,13 @@ def run_inference():
 
     # Порог уверенности для режима отказа (настраиваемый параметр)
     CONFIDENCE_THRESHOLD = 0.36
+    mlflow.log_params({
+        "confidence_threshold": CONFIDENCE_THRESHOLD,
+        "top_k": 10,
+        "batch_size": 64,
+        "model_path": WEIGHTS_PATH,
+        "device": str(device),
+    })
 
     print("Формирование submission.csv и candidates.csv...")
     for i in range(len(q_ids)):
@@ -151,7 +160,22 @@ def run_inference():
     with open(os.path.join(OUTPUT_DIR, "../candidates.csv"), "w", encoding="utf-8") as f:
         f.writelines(candidates_data)
 
+    output_root = os.path.abspath(os.path.join(OUTPUT_DIR, ".."))
+    mlflow.log_metrics({
+        "query_count": len(q_ids),
+        "gallery_count": len(g_ids),
+        "accepted_candidates": len(candidates_data) - 1,
+        "refused_queries": len(q_ids) - (len(candidates_data) - 1),
+    })
+    for name in ("embeddings.npy", "submission.csv", "candidates.csv"):
+        mlflow.log_artifact(os.path.join(output_root, name), artifact_path="inference")
+
     print(f"Готово! Все три файла успешно сгенерированы в папке: {OUTPUT_DIR}")
+
+
+def run_inference():
+    with start_run("offline-inference"):
+        _run_inference()
 
 
 if __name__ == "__main__":

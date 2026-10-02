@@ -3,6 +3,7 @@
 API: `http://localhost:8080`. Контракт: `GET /openapi.json`.
 После `docker compose up -d --build` дождитесь ответа 200 от `/readyz`.
 ML работает на CPU и доступен только внутри сети контейнеров.
+MLflow UI доступен браузеру по адресу `http://localhost:5000`.
 
 CORS разрешает `http://localhost:5173`, `http://localhost:3000` и те же адреса
 с `127.0.0.1`. Для другого origin задайте `CORS_ALLOWED_ORIGINS` (список через
@@ -62,6 +63,7 @@ const nextPage = cursor => api(
 const removeObservation = id => api(`/api/v1/gallery/observations/${id}`, {
   method: "DELETE",
 });
+const adminStats = () => api("/api/v1/admin/stats");
 ```
 
 Один `photo_id` можно переиспользовать для нескольких BBox и запросов поиска.
@@ -82,6 +84,7 @@ const removeObservation = id => api(`/api/v1/gallery/observations/${id}`, {
 | GET | `/api/v1/gallery/observations/{id}` | Наблюдение |
 | DELETE | `/api/v1/gallery/observations/{id}` | 204, в том числе при повторном удалении |
 | POST | `/api/v1/search` | `{photo_id,bbox,mode?,top_k?,threshold?,exclude_observation_ids?}` |
+| GET | `/api/v1/admin/stats` | Счётчики кадров/наблюдений, объём хранилища, версия модели |
 | GET | `/healthz` | Жив ли процесс |
 | GET | `/readyz` | Готовы ли БД, MinIO, модель |
 | GET | `/openapi.json` | Актуальный контракт |

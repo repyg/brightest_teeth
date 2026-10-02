@@ -8,13 +8,25 @@ from tqdm import tqdm
 # Импортируем классы из наших файлов
 from expeiments.dataset import VehicleReIDDataset, train_transform
 from core.model import VehicleReIDModel
+from expeiments.mlflow_tracking import start_run
+import mlflow
 
 
-def train():
+def _train():
     # Настройки
     NUM_EPOCHS = 10
     BATCH_SIZE = 32
     LEARNING_RATE = 3e-4
+
+    mlflow.log_params({
+        "epochs": NUM_EPOCHS,
+        "batch_size": BATCH_SIZE,
+        "learning_rate": LEARNING_RATE,
+        "optimizer": "AdamW",
+        "scheduler": "CosineAnnealingLR",
+        "backbone": "resnet50",
+        "embedding_size": 512,
+    })
 
     # Абсолютный путь к кропам, которые мы нарезали ранее
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,6 +40,9 @@ def train():
     train_dataset = VehicleReIDDataset(image_dir=TRAIN_CROPS_DIR, transform=train_transform)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
     num_classes = train_dataset.num_classes
+    mlflow.log_param("num_classes", num_classes)
+    mlflow.log_param("train_samples", len(train_dataset))
+    mlflow.log_param("device", str(device))
 
     # 2. Инициализируем модель
     # Подключаем веса 'resnet50' и создаем классификатор ArcFace на наше количество машин
@@ -75,13 +90,21 @@ def train():
         scheduler.step()
 
         epoch_loss = running_loss / len(train_loader)
+        mlflow.log_metrics({"train_loss": epoch_loss, "learning_rate": scheduler.get_last_lr()[0]}, step=epoch + 1)
         print(f"Эпоха [{epoch + 1}/{NUM_EPOCHS}] завершена. Средний Loss: {epoch_loss:.4f}")
 
     # 5. Сохранение обученных весов
-    os.makedirs('../core/weights', exist_ok=True)
-    save_path = os.path.join('../core/weights', 'core/weights/reid_model_final.pth')
+    weights_dir = os.path.abspath(os.path.join(BASE_DIR, "../core/weights"))
+    os.makedirs(weights_dir, exist_ok=True)
+    save_path = os.path.join(weights_dir, 'reid_model_final.pth')
     torch.save(model.state_dict(), save_path)
+    mlflow.log_artifact(save_path, artifact_path="model")
     print(f"Обучение завершено! Веса сохранены в: {save_path}")
+
+
+def train():
+    with start_run("training"):
+        _train()
 
 
 if __name__ == '__main__':

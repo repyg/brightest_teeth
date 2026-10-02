@@ -47,6 +47,9 @@ def main():
     request("GET", "/readyz")
     spec = request("GET", "/openapi.json")
     assert spec["openapi"] == "3.0.3"
+    stats = request("GET", "/api/v1/admin/stats")
+    assert stats["photos_count"] >= 0 and stats["observations_count"] >= 0
+    assert stats["model_version"]
     request("OPTIONS", "/api/v1/search", status=204)
     image = test_png()
     boundary = "smoke" + uuid.uuid4().hex
@@ -87,7 +90,7 @@ def main():
             request("DELETE", path, status=204)
             request("DELETE", path, status=204)
             request("GET", path, status=404)
-    print("PASS: all 12 API operations, real ML inference, PostgreSQL/pgvector, MinIO, CORS, validation and cleanup")
+    print("PASS: all 13 API operations, real ML inference, PostgreSQL/pgvector, MinIO, CORS, validation and cleanup")
     print("Retained smoke photo:", photo["id"])
 
 

@@ -84,6 +84,18 @@ func (p *Postgres) Ready(ctx context.Context) error {
 	return nil
 }
 
+func (p *Postgres) Stats(ctx context.Context) (api.AdminStats, error) {
+	result := api.AdminStats{ModelVersion: p.Version}
+	err := p.Pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM vehicle_photos),
+		(SELECT count(*) FROM vehicle_observations),
+		(SELECT coalesce(sum(size_bytes), 0) FROM vehicle_photos),
+		(SELECT max(created_at) FROM vehicle_observations),
+		(SELECT model_version FROM reid_model_state WHERE singleton)`,
+	).Scan(&result.PhotosCount, &result.ObservationsCount, &result.StorageBytes, &result.LastObservationAt, &result.ModelVersion)
+	return result, err
+}
+
 func (p *Postgres) SavePhoto(ctx context.Context, v service.StoredPhoto) error {
 	_, err := p.Pool.Exec(ctx, `INSERT INTO vehicle_photos (id,bucket,object_key,content_type,size_bytes,width,height,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, v.Id, v.Bucket, v.Key, string(v.ContentType), v.SizeBytes, v.Width, v.Height, v.CreatedAt)
 	return err

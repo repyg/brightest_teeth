@@ -68,6 +68,10 @@ func TestPostgresIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	stats, err := p.Stats(ctx)
+	if err != nil || stats.PhotosCount != 1 || stats.ObservationsCount != 2 || stats.StorageBytes != 100 || stats.LastObservationAt == nil || stats.ModelVersion != "test-v1" {
+		t.Fatalf("stats: %+v %v", stats, err)
+	}
 	matches, err := p.Search(ctx, v, 1, nil)
 	if err != nil || len(matches) != 1 || matches[0].Observation.Id != first.Id || matches[0].Confidence != 1 {
 		t.Fatalf("search/tie order: %+v %v", matches, err)

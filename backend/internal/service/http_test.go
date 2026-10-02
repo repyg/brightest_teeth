@@ -32,6 +32,21 @@ type memory struct {
 }
 
 func (m *memory) Ready(context.Context) error { return nil }
+func (m *memory) Stats(context.Context) (api.AdminStats, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	stats := api.AdminStats{PhotosCount: int64(len(m.photos)), ObservationsCount: int64(len(m.observations)), ModelVersion: "test-v1"}
+	for _, photo := range m.photos {
+		stats.StorageBytes += photo.SizeBytes
+	}
+	for _, observation := range m.observations {
+		if stats.LastObservationAt == nil || observation.CreatedAt.After(*stats.LastObservationAt) {
+			createdAt := observation.CreatedAt
+			stats.LastObservationAt = &createdAt
+		}
+	}
+	return stats, nil
+}
 func (m *memory) SavePhoto(_ context.Context, p StoredPhoto) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -268,6 +283,10 @@ func TestHTTPWorkflow(t *testing.T) {
 	call(t, h, "GET", "/healthz", "", nil, 200)
 	call(t, h, "GET", "/readyz", "", nil, 200)
 	call(t, h, "GET", "/openapi.json", "", nil, 200)
+	stats := readJSON[api.AdminStats](t, call(t, h, "GET", "/api/v1/admin/stats", "", nil, 200))
+	if stats.PhotosCount != 0 || stats.ObservationsCount != 0 || stats.LastObservationAt != nil {
+		t.Fatalf("bad initial stats: %+v", stats)
+	}
 	p := upload(t, h)
 	if p.Width != 8 || p.Height != 8 || p.ContentType != api.Imagepng {
 		t.Fatalf("wrong photo: %+v", p)
@@ -288,6 +307,10 @@ func TestHTTPWorkflow(t *testing.T) {
 	}
 	o := readJSON[api.Observation](t, jsonCall(t, h, "/api/v1/gallery/observations", body, 201))
 	jsonCall(t, h, "/api/v1/gallery/observations", body, 201)
+	stats = readJSON[api.AdminStats](t, call(t, h, "GET", "/api/v1/admin/stats", "", nil, 200))
+	if stats.PhotosCount != 1 || stats.ObservationsCount != 2 || stats.StorageBytes <= 0 || stats.LastObservationAt == nil {
+		t.Fatalf("bad populated stats: %+v", stats)
+	}
 	call(t, h, "GET", "/api/v1/gallery/observations/"+o.Id.String(), "", nil, 200)
 	page := readJSON[api.ObservationPage](t, call(t, h, "GET", "/api/v1/gallery/observations?limit=1", "", nil, 200))
 	if len(page.Items) != 1 || page.NextCursor == nil {

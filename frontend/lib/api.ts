@@ -1,5 +1,6 @@
 import type {
   ApiErrorPayload,
+  AdminStats,
   BBox,
   Feature,
   Observation,
@@ -10,6 +11,7 @@ import type {
 } from "./types";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080").replace(/\/$/, "");
+export const MLFLOW_URL = (process.env.NEXT_PUBLIC_MLFLOW_URL || "http://localhost:5000").replace(/\/$/, "");
 
 export class ApiError extends Error {
   status: number;
@@ -55,6 +57,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   readiness: (signal?: AbortSignal) => request<{ status: "ok" }>("/readyz", { signal }),
+
+  adminStats: () => request<AdminStats>("/api/v1/admin/stats"),
 
   uploadPhoto(file: File) {
     const form = new FormData();

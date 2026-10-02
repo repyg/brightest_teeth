@@ -24,6 +24,14 @@ export type ObservationPage = {
   next_cursor: string | null;
 };
 
+export type AdminStats = {
+  photos_count: number;
+  observations_count: number;
+  storage_bytes: number;
+  model_version: string;
+  last_observation_at: string | null;
+};
+
 export type Feature = {
   embedding: number[];
   model_version: string;
